@@ -24,14 +24,24 @@ public class FirstController {
         return "hello2";
     }
 
-    @Delete("/hello")
+    @Delete("/hello/{second}")
     public String hello3() {
         return "hello3";
     }
 
-    @Get("/hello4")
+    @Get("/hello/{first}")
     public String hello4() {
         return "hello4";
+    }
+
+    @Request("/my/path/{good}/require/{path}")
+    public String myPath() {
+        return "myPath";
+    }
+
+    @Request("/my/path/55/require/666")
+    public String myPath2() {
+        return "myPath2";
     }
 
     public FirstService getFirstService() {

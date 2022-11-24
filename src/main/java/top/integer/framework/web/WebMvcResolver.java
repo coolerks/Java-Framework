@@ -12,6 +12,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 public class WebMvcResolver {
@@ -37,6 +38,78 @@ public class WebMvcResolver {
                     .collect(Collectors.toList());
             processingRequestMethod(basePath, requestMethods);
         }
+    }
+
+    public PathMapping getPath(String path, RequestType requestType) {
+        PathMapping pathMapping = null;
+
+//        优先匹配普通路径
+        List<PathMapping> pathMappings = normalPathMapping.get(path);
+        if (pathMappings != null) {
+            pathMapping = getNormalPathMapping(pathMappings, requestType);
+        }
+//        当普通路径匹配不到时，匹配带占位符的路径
+        if (pathMapping == null) {
+            pathMapping = getPathWithPathVariable(path, requestType);
+        }
+        if (pathMapping == null) {
+            throw new RuntimeException("没有找到对应的请求路径");
+        }
+        return pathMapping;
+    }
+
+    //   匹配带占位符的路径
+    private PathMapping getPathWithPathVariable(String path, RequestType requestType) {
+        String[] pathSplit = path.split("/");
+        List<Map.Entry<String, List<PathMapping>>> paths = normalPathMapping.entrySet().stream()
+                .filter(it -> it.getKey().contains("{") && it.getKey().split("/").length == pathSplit.length)
+                .toList();
+        PathMapping pathMapping = null;
+        for (Map.Entry<String, List<PathMapping>> it : paths) {
+            String key = it.getKey();
+            String[] split = key.split("/");
+            boolean flag = true;
+//            查找是否有对应的路径
+            for (int i = 0; i < split.length; i++) {
+                if (!split[i].contains("{") && !split[i].equals(pathSplit[i])) {
+                    flag = false;
+                    break;
+                }
+            }
+            if (flag) {
+                PathMapping requestMapping = null;
+                for (PathMapping mapping : it.getValue()) {
+                    if (mapping.getRequestType() == requestType) {
+                        pathMapping = mapping;
+                        break;
+                    }
+                    // 如果没有找到对应的请求类型，就使用Request进行配对
+                    if (mapping.getRequestType() == RequestType.REQUEST) {
+                        requestMapping = mapping;
+                    }
+                }
+                if (pathMapping == null && requestMapping != null) {
+                    pathMapping = requestMapping;
+                }
+                break;
+            }
+        }
+        if (pathMapping == null) {
+            throw new RuntimeException("没有找到对应的请求路径");
+        }
+        return pathMapping;
+    }
+
+
+    private PathMapping getNormalPathMapping(List<PathMapping> pathMappings, RequestType requestType) {
+        PathMapping requestMapping = pathMappings.stream()
+                .filter(it -> it.getRequestType() == RequestType.REQUEST)
+                .findFirst()
+                .orElse(null);
+        return pathMappings.stream()
+                .filter(it -> it.getRequestType() == requestType)
+                .findFirst()
+                .orElse(requestMapping);
     }
 
     public void printPathHandler() {
