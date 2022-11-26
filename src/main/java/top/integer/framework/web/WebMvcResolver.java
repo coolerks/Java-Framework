@@ -1,11 +1,15 @@
 package top.integer.framework.web;
 
+import jakarta.servlet.http.HttpServlet;
+import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import top.integer.framework.core.ioc.Pair;
 import top.integer.framework.core.ioc.annotation.Controller;
 import top.integer.framework.core.ioc.factory.BeanDefinition;
 import top.integer.framework.web.annotation.*;
 
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -38,6 +42,19 @@ public class WebMvcResolver {
                     .collect(Collectors.toList());
             processingRequestMethod(basePath, requestMethods);
         }
+    }
+
+    public PathMapping getPath(String path, String method) {
+        if ("GET".equals(method)) {
+            return getPath(path, RequestType.GET);
+        } else if ("POST".equals(method)) {
+            return getPath(path, RequestType.POST);
+        } else if ("PUT".equals(method)) {
+            return getPath(path, RequestType.PUT);
+        } else if ("DELETE".equals(method)) {
+            return getPath(path, RequestType.DELETE);
+        }
+        return getPath(path, RequestType.REQUEST);
     }
 
     public PathMapping getPath(String path, RequestType requestType) {
@@ -95,8 +112,10 @@ public class WebMvcResolver {
             }
         }
         if (pathMapping == null) {
+            log.debug("path {} not found, method = {}", path, requestType);
             throw new RuntimeException("没有找到对应的请求路径");
         }
+        pathMapping.setPlaceHolder(true);
         return pathMapping;
     }
 
@@ -126,8 +145,10 @@ public class WebMvcResolver {
             PathMapping pathMapping = new PathMapping();
             String path = scanMethodRequestPath(it, pathMapping);
             pathMapping.setHandlerMethod(it);
-            String fullPath = path;
+            String fullPath = getBasePath(it.getDeclaringClass()) + path;
+
             pathMapping.setPath(basePath + fullPath);
+            pathMapping.setPath(fullPath);
             if (normalPathMapping.containsKey(fullPath)) {
                 normalPathMapping.get(fullPath).add(pathMapping);
             } else {
@@ -136,6 +157,29 @@ public class WebMvcResolver {
         });
     }
 
+    private String getBasePath(Class clazz) {
+        if (clazz.isAnnotationPresent(Request.class)) {
+            Request request = (Request) clazz.getAnnotation(Request.class);
+            return request.value();
+        }
+        if (clazz.isAnnotationPresent(Get.class)) {
+            Get get = (Get) clazz.getAnnotation(Get.class);
+            return get.value();
+        }
+        if (clazz.isAnnotationPresent(Post.class)) {
+            Post post = (Post) clazz.getAnnotation(Post.class);
+            return post.value();
+        }
+        if (clazz.isAnnotationPresent(Put.class)) {
+            Put put = (Put) clazz.getAnnotation(Put.class);
+            return put.value();
+        }
+        if (clazz.isAnnotationPresent(Delete.class)) {
+            Delete delete = (Delete) clazz.getAnnotation(Delete.class);
+            return delete.value();
+        }
+        return "";
+    }
 
     private String scanMethodRequestPath(Method method, PathMapping pathMapping) {
         String path = null;
@@ -190,11 +234,32 @@ public class WebMvcResolver {
         return path;
     }
 
+    public List<Pair> getPathFillingValue(String path, PathMapping pathMapping) {
+        String requestPath = pathMapping.getPath();
+        String[] pathArray = path.split("/");
+        String[] requestPathArray = requestPath.split("/");
+        if (pathArray.length != requestPathArray.length) {
+            return null;
+        }
+        List<Pair> fillingValue = new ArrayList<>();
+        for (int i = 0; i < pathArray.length; i++) {
+            if (requestPathArray[i].startsWith("{") && requestPathArray[i].endsWith("}")) {
+                fillingValue.add(new Pair(requestPathArray[i].substring(1, requestPathArray[i].length() - 1), pathArray[i]));
+            } else if (!pathArray[i].equals(requestPathArray[i])) {
+                return null;
+            }
+        }
+        return fillingValue;
+    }
+
 
     public WebMvcResolver(Class clazz) {
-        log.info("WebMvcResolver开始工作");
+        log.info("WebMvcResolver开始初始化");
         beanDefinition = new BeanDefinition(clazz);
+        log.info("扫描路径映射");
         scan();
+        log.info("扫描路径映射完成");
         printPathHandler();
+        log.info("WebMvcResolver初始化完成");
     }
 }

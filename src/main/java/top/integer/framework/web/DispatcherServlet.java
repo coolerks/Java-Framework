@@ -24,9 +24,11 @@ public class DispatcherServlet extends HttpServlet {
         AnnotationContext annotationContext = new AnnotationContext(Application.class, context -> {
             WebMvcResolver webMvcResolver = new WebMvcResolver(Application.class);
             DispatcherServlet.this.webMvcResolver = webMvcResolver;
+            context.registerBean("webMvc", webMvcResolver);
         });
         config.getServletContext().setAttribute("ioc", annotationContext);
         this.context = annotationContext;
+        webMvcResolver = context.getBean(WebMvcResolver.class);
     }
 
     public DispatcherServlet() throws SQLException {
@@ -38,7 +40,29 @@ public class DispatcherServlet extends HttpServlet {
         doDispatch(req, resp);
     }
 
-    protected void doDispatch(HttpServletRequest req, HttpServletResponse resp) {
+    @Override
+    protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+        doDispatch(req, resp);
+    }
 
+    @Override
+    protected void doPut(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+        doDispatch(req, resp);
+    }
+
+    @Override
+    protected void doDelete(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+        doDispatch(req, resp);
+    }
+
+
+    protected void doDispatch(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        resp.setContentType("text/html;charset=utf-8");
+        resp.getWriter().println(req.getServletPath() + "<br>");
+        PathMapping pathMapping = webMvcResolver.getPath(req.getServletPath(), req.getMethod());
+        resp.getWriter().println(pathMapping + "<br>");
+        if (pathMapping.isPlaceHolder()) {
+            resp.getWriter().println(webMvcResolver.getPathFillingValue(req.getServletPath(), pathMapping) + "<br>");
+        }
     }
 }

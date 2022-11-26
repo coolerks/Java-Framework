@@ -14,12 +14,6 @@ public class MyTest {
             resolver.set(new WebMvcResolver(Application.class));
         });
         WebMvcResolver webMvcResolver = resolver.get();
-        System.out.println("webMvcResolver = " + webMvcResolver);
-        System.out.println("webMvcResolver.getPath(\"/hello\", RequestType.GET) = " + webMvcResolver.getPath("/hello", RequestType.GET));
-        System.out.println("webMvcResolver.getPath(\"/hello/1\", RequestType.GET) = " + webMvcResolver.getPath("/hello/1", RequestType.GET));
-        System.out.println("webMvcResolver.getPath(\"/my/path/dfdasf/require/565aa\", RequestType.GET) = " + webMvcResolver.getPath("/my/path/dfdasf/require/565aa", RequestType.GET));
-        System.out.println("webMvcResolver.getPath(\"/my/path/55/require/666\", RequestType.POST) = " + webMvcResolver.getPath("/my/path/55/require/666", RequestType.POST));
-        System.out.println("webMvcResolver.getPath(\"/my/path/55/require/666\", RequestType.REQUEST) = " + webMvcResolver.getPath("/my/path/55/require/666", RequestType.REQUEST));
-        System.out.println("webMvcResolver.getPath(\"/my/path/33/require/888/faa\", RequestType.GET) = " + webMvcResolver.getPath("/my/path/33/require/888/faa", RequestType.GET));
+        System.out.println("webMvcResolver.getPath(\"/second/hello\", RequestType.GET) = " + webMvcResolver.getPath("/second/hello", RequestType.GET));
     }
 }

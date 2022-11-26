@@ -405,6 +405,10 @@ public class AnnotationContext {
         callback.run();
     }
 
+    public void registerBean(String name, Object o) {
+        container.addBean(name, o);
+    }
+
     public AnnotationContext(Class baseClass, Consumer<AnnotationContext> context) {
         this(baseClass);
         context.accept(this);
