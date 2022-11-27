@@ -1,12 +1,10 @@
 package top.integer.app.controller;
 
+import top.integer.app.bean.User;
 import top.integer.app.service.FirstService;
 import top.integer.framework.core.ioc.annotation.Controller;
 import top.integer.framework.core.ioc.annotation.Inject;
-import top.integer.framework.web.annotation.Delete;
-import top.integer.framework.web.annotation.Get;
-import top.integer.framework.web.annotation.Post;
-import top.integer.framework.web.annotation.Request;
+import top.integer.framework.web.annotation.*;
 
 @Controller
 @Request("/first")
@@ -15,13 +13,23 @@ public class FirstController {
     FirstService firstService;
 
     @Post("/hello")
-    public String hello() {
+    public String hello(@CookieValue String song, @CookieValue Integer val) {
         return "hello";
+    }
+
+    @Put("/user")
+    public User user(@RequestBody User user, @CookieValue String song) {
+        return user;
+    }
+
+    @Get("/user/{name}/{page}/{size}")
+    public String page(@PathVariable("page") Integer page1, @PathVariable Integer size, @PathVariable String name) {
+        return "page";
     }
 
     @Get("/hello")
     public String hello2() {
-        return "hello2";
+        return "redirect:/demo/my.jsp";
     }
 
     @Delete("/hello/{second}")

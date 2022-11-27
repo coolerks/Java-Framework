@@ -1,28 +1,28 @@
 package top.integer.framework.web;
 
-import jakarta.servlet.http.HttpServlet;
-import jakarta.servlet.http.HttpServletRequest;
+import com.google.gson.Gson;
+import jakarta.servlet.http.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import top.integer.framework.core.ioc.AnnotationContext;
 import top.integer.framework.core.ioc.Pair;
 import top.integer.framework.core.ioc.annotation.Controller;
 import top.integer.framework.core.ioc.factory.BeanDefinition;
 import top.integer.framework.web.annotation.*;
 
-import java.lang.reflect.Field;
-import java.lang.reflect.Method;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Map;
+import java.io.IOException;
+import java.io.PrintWriter;
+import java.lang.annotation.Annotation;
+import java.lang.reflect.*;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 public class WebMvcResolver {
     private Map<String, List<PathMapping>> normalPathMapping = new ConcurrentHashMap<>();
     private static final Logger log = LoggerFactory.getLogger(WebMvcResolver.class);
     private BeanDefinition beanDefinition;
+    public static final Gson gson = new Gson();
 
 
     public WebMvcResolver() {
@@ -57,6 +57,7 @@ public class WebMvcResolver {
         return getPath(path, RequestType.REQUEST);
     }
 
+
     public PathMapping getPath(String path, RequestType requestType) {
         PathMapping pathMapping = null;
 
@@ -68,9 +69,6 @@ public class WebMvcResolver {
 //        当普通路径匹配不到时，匹配带占位符的路径
         if (pathMapping == null) {
             pathMapping = getPathWithPathVariable(path, requestType);
-        }
-        if (pathMapping == null) {
-            throw new RuntimeException("没有找到对应的请求路径");
         }
         return pathMapping;
     }
@@ -113,12 +111,48 @@ public class WebMvcResolver {
         }
         if (pathMapping == null) {
             log.debug("path {} not found, method = {}", path, requestType);
-            throw new RuntimeException("没有找到对应的请求路径");
+            return null;
         }
         pathMapping.setPlaceHolder(true);
         return pathMapping;
     }
 
+    /**
+     * 填充request response cookie session
+     *
+     * @param parameter
+     * @param request
+     * @param response
+     * @return
+     */
+    private Object fillInNativeParameters(Parameter parameter, HttpServletRequest request, HttpServletResponse response) {
+        Object o = null;
+        if (parameter.getType() == HttpServletRequest.class) {
+            o = request;
+        } else if (parameter.getType() == HttpServletResponse.class) {
+            o = response;
+        } else if (parameter.getType() == Cookie.class) {
+            o = request.getCookies();
+        } else if (parameter.getType() == HttpSession.class) {
+            o = request.getSession();
+        }
+        return o;
+    }
+
+    private Object fillResponseBody(HttpServletRequest request, Parameter parameter) {
+        Object o = null;
+        if (parameter.isAnnotationPresent(RequestBody.class)) {
+            String contentType = request.getContentType();
+            if (contentType != null && contentType.contains("application/json")) {
+                try {
+                    o = gson.fromJson(request.getReader(), parameter.getType());
+                } catch (Exception e) {
+                    log.error("json to object error", e);
+                }
+            }
+        }
+        return o;
+    }
 
     private PathMapping getNormalPathMapping(List<PathMapping> pathMappings, RequestType requestType) {
         PathMapping requestMapping = pathMappings.stream()
@@ -139,6 +173,252 @@ public class WebMvcResolver {
             }
         }
     }
+
+    public void invoke(AnnotationContext context, HttpServletResponse response, Method method, List<Object> args) {
+        Class<?> clazz = method.getDeclaringClass();
+        Object o = context.getBean(clazz);
+        Class<?> returnType = method.getReturnType();
+        try {
+            Object result = method.invoke(o, args.toArray());
+            PrintWriter writer = response.getWriter();
+            System.out.println("clazz = " + clazz);
+            if (returnType == Integer.class || returnType == int.class
+                    || returnType == Double.class || returnType == double.class
+                    || returnType == Float.class || returnType == float.class
+                    || returnType == Long.class || returnType == long.class
+                    || returnType == Boolean.class || returnType == boolean.class
+                    || returnType == short.class || returnType == Short.class
+                    || returnType == Character.class || returnType == char.class) {
+                writer.write(result.toString());
+            } else if (returnType == String.class) {
+                String s = (String) result;
+                if (s.startsWith("redirect:")) {
+                    response.sendRedirect(s.substring(9));
+                } else {
+                    writer.write(s);
+                }
+            } else {
+                writer.write(gson.toJson(result));
+            }
+            writer.flush();
+        } catch (IllegalAccessException | InvocationTargetException e) {
+            log.error("invoke method error", e);
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    /**
+     * 处理请求参数
+     *
+     * @param request
+     * @param response
+     * @param method
+     * @return
+     */
+    public List<Object> processRequestParameter(HttpServletRequest request, HttpServletResponse response, Method method, Map<String, String> pathValueMapping) {
+        List<Object> fill = new ArrayList<>();
+        Parameter[] parameters = method.getParameters();
+        Map<String, String> cookie = Collections.emptyMap();
+        if (request.getCookies() != null && request.getCookies().length != 0) {
+            cookie = Arrays.stream(request.getCookies())
+                    .collect(Collectors.toMap(Cookie::getName, Cookie::getValue));
+        }
+        if (parameters.length == 0) {
+            return Collections.emptyList();
+        }
+//        if (request.)
+        for (Parameter parameter : parameters) {
+            if (parameter.isAnnotationPresent(RequestParameter.class)) {
+                String name = getValue(parameter.getAnnotation(RequestParameter.class), parameter.getName());
+                fill.add(fillRequestParameters(request, name, parameter));
+            } else if (parameter.isAnnotationPresent(CookieValue.class)) {
+                String name = getValue(parameter.getAnnotation(CookieValue.class), parameter.getName());
+                fill.add(fillCookie(cookie, name, parameter));
+            } else if (parameter.isAnnotationPresent(HeaderValue.class)) {
+                String name = getValue(parameter.getAnnotation(HeaderValue.class), parameter.getName());
+                fill.add(request.getHeader(name));
+                System.out.println("name = " + name);
+            } else if (parameter.isAnnotationPresent(RequestBody.class)) {
+                fill.add(fillResponseBody(request, parameter));
+            } else if (parameter.isAnnotationPresent(PathVariable.class)) {
+                String name = getValue(parameter.getAnnotation(PathVariable.class), parameter.getName());
+                fill.add(fillPathVariable(name, parameter, pathValueMapping));
+            } else {
+                Object o = fillInNativeParameters(parameter, request, response);
+                if (o != null) {
+                    fill.add(o);
+                }
+            }
+        }
+        return fill;
+    }
+
+    /**
+     * 填充请求的参数
+     *
+     * @param request
+     * @param name
+     * @param parameter
+     * @return
+     */
+    public Object fillRequestParameters(HttpServletRequest request, String name, Parameter parameter) {
+        Class<?> type = parameter.getType();
+        Object o = fillBasicDataType(request, name, parameter);
+        if (o == null) {
+            o = fillList(request, name, parameter);
+        }
+        return o;
+    }
+
+    /**
+     * 填充基本类型
+     *
+     * @param request
+     * @param name
+     * @param parameter
+     * @return
+     */
+    public Object fillBasicDataType(HttpServletRequest request, String name, Parameter parameter) {
+        Class<?> type = parameter.getType();
+        if (type == String.class) {
+            return request.getParameter(name);
+        } else if (type == int.class || type == Integer.class) {
+            return Integer.parseInt(request.getParameter(name));
+        } else if (type == long.class || type == Long.class) {
+            return Long.parseLong(request.getParameter(name));
+        } else if (type == double.class || type == Double.class) {
+            return Double.parseDouble(request.getParameter(name));
+        } else if (type == float.class || type == Float.class) {
+            return Float.parseFloat(request.getParameter(name));
+        } else if (type == boolean.class || type == Boolean.class) {
+            return Boolean.parseBoolean(request.getParameter(name));
+        } else if (type == byte.class || type == Byte.class) {
+            return Byte.parseByte(request.getParameter(name));
+        } else if (type == short.class || type == Short.class) {
+            return Short.parseShort(request.getParameter(name));
+        } else if (type == char.class || type == Character.class) {
+            return request.getParameter(name).charAt(0);
+        }
+        return null;
+    }
+
+    public Object fillCookie(Map<String, String> cookie, String name, Parameter parameter) {
+        Class<?> type = parameter.getType();
+        if (type == String.class) {
+            return cookie.get(name);
+        } else if (type == int.class || type == Integer.class) {
+            return Integer.parseInt(cookie.get(name));
+        } else if (type == long.class || type == Long.class) {
+            return Long.parseLong(cookie.get(name));
+        } else if (type == double.class || type == Double.class) {
+            return Double.parseDouble(cookie.get(name));
+        } else if (type == float.class || type == Float.class) {
+            return Float.parseFloat(cookie.get(name));
+        } else if (type == boolean.class || type == Boolean.class) {
+            return Boolean.parseBoolean(cookie.get(name));
+        } else if (type == byte.class || type == Byte.class) {
+            return Byte.parseByte(cookie.get(name));
+        } else if (type == short.class || type == Short.class) {
+            return Short.parseShort(cookie.get(name));
+        } else if (type == char.class || type == Character.class) {
+            return cookie.get(name).charAt(0);
+        }
+        return null;
+    }
+
+    private Object fillPathVariable(String name, Parameter parameter, Map<String, String> pathValueMapping) {
+        Class<?> type = parameter.getType();
+        if (type == String.class) {
+            return pathValueMapping.get(name);
+        } else if (type == int.class || type == Integer.class) {
+            return Integer.parseInt(pathValueMapping.get(name));
+        } else if (type == long.class || type == Long.class) {
+            return Long.parseLong(pathValueMapping.get(name));
+        } else if (type == double.class || type == Double.class) {
+            return Double.parseDouble(pathValueMapping.get(name));
+        } else if (type == float.class || type == Float.class) {
+            return Float.parseFloat(pathValueMapping.get(name));
+        } else if (type == boolean.class || type == Boolean.class) {
+            return Boolean.parseBoolean(pathValueMapping.get(name));
+        } else if (type == byte.class || type == Byte.class) {
+            return Byte.parseByte(pathValueMapping.get(name));
+        } else if (type == short.class || type == Short.class) {
+            return Short.parseShort(pathValueMapping.get(name));
+        } else if (type == char.class || type == Character.class) {
+            return pathValueMapping.get(name).charAt(0);
+        }
+        return null;
+    }
+
+
+    public List fillList(HttpServletRequest request, String name, Parameter parameter) {
+        Type parameterizedType = parameter.getParameterizedType();
+        String typeName = parameterizedType.getTypeName();
+        String genericParadigm = typeName.substring(typeName.indexOf("<") + 1, typeName.indexOf(">"));
+        System.out.println("genericParadigm = " + genericParadigm);
+        Class<?> aClass = null;
+        try {
+            aClass = Class.forName(genericParadigm);
+        } catch (ClassNotFoundException e) {
+            throw new RuntimeException(e);
+        }
+        String[] parameterValues = request.getParameterValues(name);
+        if (parameterValues == null) {
+            return Collections.emptyList();
+        }
+        List list = new ArrayList();
+        for (String parameterValue : parameterValues) {
+            if (aClass == String.class) {
+                list.add(parameterValue);
+            } else if (aClass == int.class || aClass == Integer.class) {
+                list.add(Integer.parseInt(parameterValue));
+            } else if (aClass == long.class || aClass == Long.class) {
+                list.add(Long.parseLong(parameterValue));
+            } else if (aClass == double.class || aClass == Double.class) {
+                list.add(Double.parseDouble(parameterValue));
+            } else if (aClass == float.class || aClass == Float.class) {
+                list.add(Float.parseFloat(parameterValue));
+            } else if (aClass == boolean.class || aClass == Boolean.class) {
+                list.add(Boolean.parseBoolean(parameterValue));
+            } else if (aClass == byte.class || aClass == Byte.class) {
+                list.add(Byte.parseByte(parameterValue));
+            } else if (aClass == short.class || aClass == Short.class) {
+                list.add(Short.parseShort(parameterValue));
+            } else if (aClass == char.class || aClass == Character.class) {
+                list.add(parameterValue.charAt(0));
+            }
+        }
+        return list;
+    }
+
+    private String getValue(Annotation annotation, String defaultValue) {
+        String value = null;
+        if (annotation instanceof Request) {
+            value = ((Request) annotation).value();
+        } else if (annotation instanceof Get) {
+            value = ((Get) annotation).value();
+        } else if (annotation instanceof Post) {
+            value = ((Post) annotation).value();
+        } else if (annotation instanceof Put) {
+            value = ((Put) annotation).value();
+        } else if (annotation instanceof Delete) {
+            value = ((Delete) annotation).value();
+        } else if (annotation instanceof PathVariable) {
+            value = ((PathVariable) annotation).value();
+        } else if (annotation instanceof RequestParameter) {
+            value = ((RequestParameter) annotation).value();
+        } else if (annotation instanceof CookieValue) {
+            value = ((CookieValue) annotation).value();
+        } else if (annotation instanceof HeaderValue) {
+            value = ((HeaderValue) annotation).value();
+        }
+        if (value == null || "".equals(value)) {
+            return defaultValue;
+        }
+        return value;
+    }
+
 
     private void processingRequestMethod(String basePath, List<Method> requestMethod) {
         requestMethod.forEach(it -> {
@@ -223,7 +503,7 @@ public class WebMvcResolver {
             path = ((Delete) clazz.getAnnotation(Delete.class)).value();
         }
         if (path == null) {
-            throw new RuntimeException("Controller must have RequestMapping annotation");
+            return null;
         }
         if (!path.startsWith("/")) {
             path = "/" + path;
@@ -234,22 +514,23 @@ public class WebMvcResolver {
         return path;
     }
 
-    public List<Pair> getPathFillingValue(String path, PathMapping pathMapping) {
+    public Map<String, String> getPathFillingValue(String path, PathMapping pathMapping) {
         String requestPath = pathMapping.getPath();
         String[] pathArray = path.split("/");
         String[] requestPathArray = requestPath.split("/");
+        Map<String, String> result = new HashMap<>();
         if (pathArray.length != requestPathArray.length) {
             return null;
         }
-        List<Pair> fillingValue = new ArrayList<>();
         for (int i = 0; i < pathArray.length; i++) {
             if (requestPathArray[i].startsWith("{") && requestPathArray[i].endsWith("}")) {
-                fillingValue.add(new Pair(requestPathArray[i].substring(1, requestPathArray[i].length() - 1), pathArray[i]));
+                String key = requestPathArray[i].substring(1, requestPathArray[i].length() - 1);
+                result.put(key, pathArray[i]);
             } else if (!pathArray[i].equals(requestPathArray[i])) {
                 return null;
             }
         }
-        return fillingValue;
+        return result;
     }
 
 

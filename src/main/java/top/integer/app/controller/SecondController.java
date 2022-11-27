@@ -1,12 +1,15 @@
 package top.integer.app.controller;
 
+import jakarta.servlet.http.Cookie;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpSession;
 import top.integer.app.service.FirstService;
 import top.integer.framework.core.ioc.annotation.Controller;
 import top.integer.framework.core.ioc.annotation.Inject;
-import top.integer.framework.web.annotation.Delete;
-import top.integer.framework.web.annotation.Get;
-import top.integer.framework.web.annotation.Post;
-import top.integer.framework.web.annotation.Request;
+import top.integer.framework.web.annotation.*;
+
+import java.util.List;
 
 @Controller
 @Request("/second")
@@ -20,7 +23,7 @@ public class SecondController {
     }
 
     @Get("/hello")
-    public String hello2() {
+    public String hello2(@CookieValue("JSESSIONID") String val, @RequestParameter("name") List<Integer> list, @HeaderValue String cookie) {
         return "hello2";
     }
 
@@ -30,7 +33,7 @@ public class SecondController {
     }
 
     @Get("/hello4")
-    public String hello4() {
+    public String hello4(HttpServletRequest request, HttpServletResponse response, HttpSession session, Cookie cookie) {
         return "hello4";
     }
 
